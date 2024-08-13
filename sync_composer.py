@@ -9,6 +9,7 @@ CUSTOM_VENDORS = {
     "borlabs-cookie": "borlabs",
     "wp-seopress-pro": "seopress",
     "gd-accordion-block": "grand-digital",
+    "gd-new-era": "grand-digital",
     # Add other custom plugins and their vendors as needed
 }
 
