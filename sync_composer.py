@@ -7,7 +7,6 @@ CUSTOM_VENDORS = {
     "advanced-custom-fields-pro": "wpengine",
     "wp-migrate-db-pro": "deliciousbrains-plugin",
     "borlabs-cookie": "borlabs",
-    "wp-seopress-pro": "seopress",
     "gd-accordion-block": "grand-digital",
     "gd-new-era": "grand-digital",
     "gd-simple-jobs": "grand-digital",
