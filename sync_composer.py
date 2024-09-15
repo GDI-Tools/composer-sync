@@ -1,117 +1,175 @@
 import json
 import os
 import subprocess
-
-# Define your custom vendors here in format: [plugin-slug : vendor]
-CUSTOM_VENDORS = {
-    "advanced-custom-fields-pro": "wpengine",
-    "wp-migrate-db-pro": "deliciousbrains-plugin",
-    "borlabs-cookie": "borlabs",
-    "gd-accordion-block": "grand-digital",
-    "gd-new-era": "grand-digital",
-    "gd-simple-jobs": "grand-digital",
-    "gd-slider-block": "grand-digital",
-    # Add other custom plugins and their vendors as needed
-}
+import urllib.request
 
 # Exclude plugins here, the value left empty, key should be plugin slug
 EXCLUDE_PLUGINS = {
     "advanced-cache.php": ""
 }
 
-print("Start updating composer json")
-current_dir = os.path.dirname(os.path.abspath(__file__))
-composer_file = os.path.join(current_dir, 'composer.json')
 
-command = ["ddev", "wp", "plugin", "list", "--format=json"]
-# Run the command
-result = subprocess.run(command, capture_output=True, text=True)
+class SyncComposer:
+    def __init__(self):
+        self.wartung_api = 'https://wartung-api.grand-digital.de/api/custom-vendor/'
+        self.composer_backup = None
 
-try:
-    # Check if the command was successful
-    if result.returncode == 0:
-        # Store the output in a variable
-        output_json = result.stdout
+    def backup_composer(self, composer_file_path):
+        try:
+            print("Backing up composer backup...")
+            with open(composer_file_path, 'r') as file:
+                composer = json.load(file)
+                backup_composer_data = json.dumps(composer, indent=4)
+                self.composer_backup = backup_composer_data
+        except Exception as error:
+            print(f"Failed to backup composer")
+            raise Exception(f"Failed to backup composer with error: {error}")
 
-        # Parse the JSON output
-        plugins = json.loads(output_json)
-except subprocess.CalledProcessError as error:
-    print(f"Can't run ddev command failed with error: {error.output}")
-    exit(1)
+    def get_all_vendors(self):
+        try:
+            print("Getting all vendors...")
+            with urllib.request.urlopen(self.wartung_api) as response:
+                data = response.read()
+                vendors_data = json.loads(data.decode('utf-8'))
+                return vendors_data
 
-print("Get list of plugins from wordpress")
+        except Exception as error:
+            print(f"Can't get vendors from Wartung API")
+            raise Exception(f"Can't get vendors from Wartung API with error {error}")
 
-# Load the existing composer.json
-with open(composer_file, 'r') as file:
-    composer = json.load(file)
+    def extract_custom_vendors(self, vendors):
+        print("Extracting custom vendors...")
+        vendors_dict_data = {vendor.get('slug'): vendor.get('name') for vendor in vendors}
+        return vendors_dict_data
 
-# Save the current composer.json content before updating it
-rollback_composer_json = json.dumps(composer, indent=4)
+    def get_composer_file_path(self):
+        print("Getting composer file path...")
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        composer_file = os.path.join(current_dir, 'composer.json')
 
-# Ensure the 'require' section exists
-if 'require' not in composer:
-    composer['require'] = {}
+        if os.path.exists(composer_file):
+            return composer_file
+        else:
+            print(f"Can't find composer.json in {current_dir}")
+            raise Exception(f"Can't find composer.json in {current_dir}")
 
-# Extract currently required plugins from composer.json
-current_requirements = set(composer['require'].keys())
+    def get_installed_plugins_wp(self):
+        command = ["ddev", "wp", "plugin", "list", "--format=json"]
 
-print("Start update plugins version")
-# Add/update plugins in the 'require' section
-for plugin in plugins:
-    name = plugin['name']
-    version = plugin['version']
-    status = plugin['status']
+        try:
+            print("Getting installed plugins from WordPress installation...")
+            result = subprocess.run(command, capture_output=True, text=True)
+            if result.returncode == 0:
+                output_json = result.stdout
+                plugins = json.loads(output_json)
+                filtered_plugins = [plugin for plugin in plugins if plugin.get('status') != 'must-use']
+                return filtered_plugins
+        except Exception as error:
+            print(f"Can't get installed plugins from WP failed with error: {error}")
+            exit(1)
 
-    if status not in ['active', 'inactive']:
-        continue
+    def clear_data(self):
+        print("Clearing data...")
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        composer_file = os.path.join(current_dir, 'sync_composer.py')
+        if os.path.exists(composer_file):
+            os.remove(composer_file)
 
-    # Check if plugin is excluded
-    if name in EXCLUDE_PLUGINS:
-        continue
+    def get_wordpress_version(self):
+        try:
+            print("Getting WordPress version...")
+            command = ["ddev", "wp", "core", "version"]
+            result = subprocess.run(command, capture_output=True, text=True)
 
-    # Determine the vendor
-    if name in CUSTOM_VENDORS:
-        vendor = CUSTOM_VENDORS[name]
-        composer['require'][f'{vendor}/{name}'] = version
-    else:
-        vendor = 'wpackagist-plugin'
-        composer['require'][f'wpackagist-plugin/{name}'] = version
+            if result.returncode == 0:
+                wp_version = result.stdout
+                return wp_version
+            else:
+                raise Exception(f"Can't get wordpress version from WP failed with error: {result.stderr}")
+        except Exception as error:
+            print(f"Can't get wordpress version from WP failed")
+            raise Exception(f"Can't get wordpress version from WP failed with error: {error}")
 
-# Determine the plugins that should be kept based on the current plugin list
-installed_plugins = {f'{CUSTOM_VENDORS[plugin["name"]]}/{plugin["name"]}' if plugin["name"] in CUSTOM_VENDORS else f'wpackagist-plugin/{plugin["name"]}' for plugin in plugins}
+    def set_composer_require(self, composer_file_path, wp_plugins, vendors):
+        try:
+            print("Setting composer requirements...")
+            with open(composer_file_path, 'r') as file:
+                composer = json.load(file)
 
-# Get wordpress version
-command = ["ddev", "wp", "core", "version"]
-# Run the command
-result = subprocess.run(command, capture_output=True, text=True)
+                if 'require' not in composer:
+                    composer['require'] = {}
 
-# Check if the command was successful
-if result.returncode == 0:
-    # Store the output in a variable
-    wp_version = result.stdout
+                current_requirements_data = set(composer['require'].keys())
 
-composer['require']['roots/wordpress'] = wp_version.strip()
+                for plugin in wp_plugins:
+                    name = plugin['name']
+                    version = plugin['version']
+                    status = plugin['status']
 
-# Remove plugins from composer.json that are no longer installed
-plugins_to_remove = current_requirements - installed_plugins
-for plugin in plugins_to_remove:
-    if plugin.startswith('wpackagist-plugin/') or any(plugin.startswith(f'{vendor}/') for vendor in CUSTOM_VENDORS.values()):
-        del composer['require'][plugin]
+                    if status not in ['active', 'inactive']:
+                        continue
 
-print("Save new composer file")
-# Save the updated composer.json
-with open(composer_file, 'w') as file:
-    json.dump(composer, file, indent=4)
+                    if name in EXCLUDE_PLUGINS:
+                        continue
 
-print("Run composer in dry-run mode to check all plugins please wait...")
-command = ["ddev", "composer", "update", "--dry-run"]
-result = subprocess.run(command, capture_output=True, text=True)
+                    if name in vendors:
+                        vendor = vendors[name]
+                        composer['require'][f'{vendor}/{name}'] = version
+                    else:
+                        vendor = 'wpackagist-plugin'
+                        composer['require'][f'{vendor}/{name}'] = version
 
-# Check if the dry-run was successful
-if result.returncode != 0:
-    # Dry-run failed, rollback to the previous composer.json
-    with open(composer_file, 'w') as file:
-        file.write(rollback_composer_json)
-    print(f"Dry-run command failed. Rolled back to previous composer.json.\nError: {result.stderr}")
-else:
-    print("Success composer.json has been updated.")
+                installed_plugins = {f'{vendors[plugin["name"]]}/{plugin["name"]}' if plugin[ "name"] in vendors else f'wpackagist-plugin/{plugin["name"]}' for plugin in wp_plugins}
+                wp_version = self.get_wordpress_version()
+                composer['require']['roots/wordpress'] = wp_version.strip()
+
+                plugins_to_remove = current_requirements_data - installed_plugins
+
+                print("Synchronize composer requirements...")
+                for plugin in plugins_to_remove:
+                    if plugin.startswith('wpackagist-plugin/') or any(
+                            plugin.startswith(f'{vendor}/') for vendor in vendors.values()):
+                        del composer['require'][plugin]
+
+            with open(composer_file_path, 'w') as file:
+                json.dump(composer, file, indent=4)
+
+        except Exception as err:
+            print(f"Can't set requirement for {composer_file_path}")
+            raise Exception(f"Can't set requirement for {composer_file_path} failed with error: {err}")
+
+    def check_composer_installation(self, composer_file_path):
+        print("Run composer in dry-run mode to check all plugins please wait...")
+        command = ["ddev", "composer", "update", "--dry-run"]
+        try:
+            result = subprocess.run(command, capture_output=True, text=True)
+
+            if result.returncode != 0:
+                with open(composer_file_path, 'w') as file:
+                    file.write(self.composer_backup)
+                print(f"Dry-run command failed. Rolled back to previous composer.json.\nError: {result.stderr}")
+            else:
+                print(f"Composer validation successfully.")
+        except Exception as error:
+            print("During execution composer in dry-run mode failed")
+
+    def sync_composer(self):
+        try:
+            vendors = self.get_all_vendors()
+            vendors_dict = self.extract_custom_vendors(vendors)
+            composer_file = self.get_composer_file_path()
+            self.backup_composer(composer_file)
+            wp_installed_plugins = self.get_installed_plugins_wp()
+            self.set_composer_require(composer_file, wp_installed_plugins, vendors_dict)
+            self.check_composer_installation(composer_file)
+            self.clear_data()
+            print("Composer synced successfully.")
+
+        except Exception as error:
+            print(f"Can't get installed plugins from WP failed with error: {error}")
+            self.clear_data()
+            exit(1)
+
+if __name__ == "__main__":
+    sync_composer = SyncComposer()
+    sync_composer.sync_composer()
