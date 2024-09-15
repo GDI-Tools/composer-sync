@@ -17,9 +17,9 @@
 - In terminal run `python3 sync_composer.py`
 
 ### Autoupdate method: RECOMMENDED
-- To not download this script every time just copy `Makefile` file in your projects and run `make` in terminal this will automatically download the last version of the script and synchronize your composer file
+- To not download this script every time just copy `Makefile` file in your projects and run `make` in terminal this 
+will automatically download the last version of the script and synchronize your composer file, script will remove itself after sync
 
 ### Note
 - The script will update WordPress core and all plugins that found on WordPress backend
 - Plugins that are found in WordPress backend and not in `composer.json` will be deleted from `composer.json`
-
