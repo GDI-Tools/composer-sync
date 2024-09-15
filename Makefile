@@ -12,6 +12,5 @@ update_script:
 
 sync_composer: update_script project_state
 	python3 sync_composer.py
-	rm $(SCRIPT_FILE)
 
 .DEFAULT_GOAL := sync_composer
